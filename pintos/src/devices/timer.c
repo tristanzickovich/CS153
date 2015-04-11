@@ -3,11 +3,12 @@
 #include <inttypes.h>
 #include <round.h>
 #include <stdio.h>
+#include <list.h>
 #include "devices/pit.h"
 #include "threads/interrupt.h"
 #include "threads/synch.h"
 #include "threads/thread.h"
-  
+
 /* See [8254] for hardware details of the 8254 timer chip. */
 
 #if TIMER_FREQ < 19
@@ -24,6 +25,8 @@ static int64_t ticks;
    Initialized by timer_calibrate(). */
 static unsigned loops_per_tick;
 
+static struct list sleepingList;
+
 static intr_handler_func timer_interrupt;
 static bool too_many_loops (unsigned loops);
 static void busy_wait (int64_t loops);
@@ -37,6 +40,7 @@ timer_init (void)
 {
   pit_configure_channel (0, 2, TIMER_FREQ);
   intr_register_ext (0x20, timer_interrupt, "8254 Timer");
+  list_init(&sleepingList);
 }
 
 /* Calibrates loops_per_tick, used to implement brief delays. */
@@ -92,8 +96,17 @@ timer_sleep (int64_t ticks)
   int64_t start = timer_ticks ();
 
   ASSERT (intr_get_level () == INTR_ON);
-  while (timer_elapsed (start) < ticks) 
-    thread_yield ();
+  
+  struct thread *t = thread_current();
+  t->wake_time = start+ticks;
+  
+  enum intr_level old_state;
+  old_state = intr_disable ();
+  
+  list_push_back(&sleepingList, &t->sleep_element);
+  thread_block();
+  
+  intr_set_level(old_state); 
 }
 
 /* Sleeps for approximately MS milliseconds.  Interrupts must be
@@ -172,6 +185,23 @@ timer_interrupt (struct intr_frame *args UNUSED)
 {
   ticks++;
   thread_tick ();
+  
+  struct list_elem * e;
+  for (e = list_begin(&sleepingList); e != list_end(&sleepingList); )
+  {
+    //Notice one parameter is the struct thread (or whatever you're using)
+    struct thread *t = list_entry (e, struct thread, sleep_element);
+    //(can use other lists by switching which elem is used); 
+    
+    e = list_next(e);
+    //printf(t->wake_time);
+    //printf(timer_ticks());
+    if (t->wake_time <= timer_ticks())
+    {
+      list_remove(&t->sleep_element);
+      thread_unblock(t);
+    }
+  }
 }
 
 /* Returns true if LOOPS iterations waits for more than one timer
