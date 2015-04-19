@@ -353,6 +353,7 @@ thread_foreach (thread_action_func *func, void *aux)
 void
 thread_set_priority (int new_priority) 
 {
+  thread_current()->orig_priority = new_priority;
   thread_current ()->priority = new_priority;
   struct thread *t = list_entry(list_begin(&ready_list), struct thread, elem);
   if(new_priority < t->priority){
@@ -364,7 +365,12 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-  return thread_current ()->priority;
+  if(list_empty(thread_current()->donor_list))
+     return thread_current()->priority; 
+  int donor_prior = list_entry(list_begin(thread_current()->donor_list), struct thread, elem)->priority; 
+  if(donor_prior < thread_current()->priority)
+    return thread_current()->priority;
+  return donor_prior; 
 }
 
 /* Sets the current thread's nice value to NICE. */
@@ -476,12 +482,12 @@ init_thread (struct thread *t, const char *name, int priority)
   ASSERT (t != NULL);
   ASSERT (PRI_MIN <= priority && priority <= PRI_MAX);
   ASSERT (name != NULL);
-
   memset (t, 0, sizeof *t);
   t->status = THREAD_BLOCKED;
   strlcpy (t->name, name, sizeof t->name);
   t->stack = (uint8_t *) t + PGSIZE;
   t->priority = priority;
+  t->orig_priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
 }
