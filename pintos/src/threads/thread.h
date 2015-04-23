@@ -91,6 +91,8 @@ struct thread
     struct list_elem allelem;           /* List element for all threads list. */
     int64_t wake_time;
     struct list_elem sleep_element;
+    int orig_priority;
+    struct list *donor_list;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -107,7 +109,7 @@ struct thread
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
 extern bool thread_mlfqs;
-
+struct thread *highest_prior(void);
 void thread_init (void);
 void thread_start (void);
 

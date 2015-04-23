@@ -48,9 +48,12 @@ struct kernel_thread_frame
 static bool priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct thread *t1 = list_entry(a, struct thread, elem);
   struct thread *t2 = list_entry(b, struct thread, elem);
-  return t1->priority > t2->priority;
+  return t1->priority < t2->priority;
 }
 
+struct thread *highest_prior(void){
+  return list_entry(list_max(&ready_list, priority_compare, NULL), struct thread, elem);
+}
 /* Statistics. */
 static long long idle_ticks;    /* # of timer ticks spent idle. */
 static long long kernel_ticks;  /* # of timer ticks in kernel threads. */
@@ -214,7 +217,7 @@ thread_create (const char *name, int priority,
 
   /* Add to run queue. */
   thread_unblock (t);
-  struct thread *t0 = list_entry(list_begin(&ready_list), struct thread, elem);
+  struct thread *t0 = list_entry(list_max(&ready_list, priority_compare, NULL), struct thread, elem);
   if(thread_current()->priority < t0->priority){
     thread_yield();
   }
@@ -255,7 +258,7 @@ thread_unblock (struct thread *t)
 
   old_level = intr_disable ();
   ASSERT (t->status == THREAD_BLOCKED);
-  list_insert_ordered(&ready_list, &t->elem, priority_compare, NULL);
+  list_push_back(&ready_list, &t->elem);
   t->status = THREAD_READY;
   intr_set_level (old_level);
 }
@@ -326,7 +329,7 @@ thread_yield (void)
 
   old_level = intr_disable ();
   if (cur != idle_thread) 
-    list_insert_ordered(&ready_list, &cur->elem, priority_compare, NULL);
+    list_push_back(&ready_list, &cur->elem);
   cur->status = THREAD_READY;
   schedule ();
   intr_set_level (old_level);
@@ -355,7 +358,7 @@ thread_set_priority (int new_priority)
 {
   thread_current()->orig_priority = new_priority;
   thread_current ()->priority = new_priority;
-  struct thread *t = list_entry(list_begin(&ready_list), struct thread, elem);
+  struct thread *t = list_entry(list_max(&ready_list, priority_compare, NULL), struct thread, elem);
   if(new_priority < t->priority){
     thread_yield();
   }
@@ -367,7 +370,7 @@ thread_get_priority (void)
 {
   if(list_empty(thread_current()->donor_list))
      return thread_current()->priority; 
-  int donor_prior = list_entry(list_begin(thread_current()->donor_list), struct thread, elem)->priority; 
+  int donor_prior = list_entry(list_max(thread_current()->donor_list, priority_compare, NULL), struct thread, elem)->priority; 
   if(donor_prior < thread_current()->priority)
     return thread_current()->priority;
   return donor_prior; 
@@ -515,8 +518,11 @@ next_thread_to_run (void)
 {
   if (list_empty (&ready_list))
     return idle_thread;
-  else
-    return list_entry (list_pop_front (&ready_list), struct thread, elem);
+  else{
+    struct thread *ret = list_entry (list_max(&ready_list, priority_compare, NULL), struct thread, elem);
+    list_remove(list_max(&ready_list, priority_compare, NULL));
+    return ret;
+  }
 }
 
 /* Completes a thread switch by activating the new thread's page
