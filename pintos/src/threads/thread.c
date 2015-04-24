@@ -48,7 +48,7 @@ struct kernel_thread_frame
 static bool priority_compare(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct thread *t1 = list_entry(a, struct thread, elem);
   struct thread *t2 = list_entry(b, struct thread, elem);
-  return t1->priority < t2->priority;
+  return priority_of_thread(t1) < priority_of_thread(t2);
 }
 
 struct thread *highest_prior(void){
@@ -214,7 +214,6 @@ thread_create (const char *name, int priority,
   sf->ebp = 0;
 
   intr_set_level (old_level);
-
   /* Add to run queue. */
   thread_unblock (t);
   struct thread *t0 = list_entry(list_max(&ready_list, priority_compare, NULL), struct thread, elem);
@@ -368,14 +367,28 @@ thread_set_priority (int new_priority)
 int
 thread_get_priority (void) 
 {
-  if(list_empty(thread_current()->donor_list))
-     return thread_current()->priority; 
-  int donor_prior = list_entry(list_max(thread_current()->donor_list, priority_compare, NULL), struct thread, elem)->priority; 
-  if(donor_prior < thread_current()->priority)
-    return thread_current()->priority;
-  return donor_prior; 
+  return priority_of_thread(thread_current());
 }
 
+int priority_of_thread (struct thread * t)
+{
+  if (list_empty(&t->lock_list))
+    return t->priority;
+  struct list_elem * e;
+  int max_prior = t->priority;
+  for (e = list_begin(&t->lock_list); e != list_end(&t->lock_list); e = list_next(e))
+  {
+    struct lock * l = list_entry(e, struct lock, donor_elem);
+    struct list_elem * e2;
+    for (e2 = list_begin(&l->semaphore.waiters); e2 != list_end(&l->semaphore.waiters); e2 = list_next(e2))
+    {
+      struct thread * t1 = list_entry(e2, struct thread, elem);
+      if (priority_of_thread(t1) > max_prior)
+         max_prior = priority_of_thread(t1);
+    }
+  } 
+  return max_prior;
+}
 /* Sets the current thread's nice value to NICE. */
 void
 thread_set_nice (int nice UNUSED) 
@@ -493,6 +506,8 @@ init_thread (struct thread *t, const char *name, int priority)
   t->orig_priority = priority;
   t->magic = THREAD_MAGIC;
   list_push_back (&all_list, &t->allelem);
+
+  list_init(&t->lock_list);
 }
 
 /* Allocates a SIZE-byte frame at the top of thread T's stack and

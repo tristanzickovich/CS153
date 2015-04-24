@@ -92,7 +92,7 @@ struct thread
     int64_t wake_time;
     struct list_elem sleep_element;
     int orig_priority;
-    struct list *donor_list;
+    struct list lock_list;
     /* Shared between thread.c and synch.c. */
     struct list_elem elem;              /* List element. */
 
@@ -135,7 +135,7 @@ void thread_foreach (thread_action_func *, void *);
 
 int thread_get_priority (void);
 void thread_set_priority (int);
-
+int priority_of_thread(struct thread*);
 int thread_get_nice (void);
 void thread_set_nice (int);
 int thread_get_recent_cpu (void);
