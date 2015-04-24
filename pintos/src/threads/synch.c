@@ -44,7 +44,7 @@
 static bool priority_comp(const struct list_elem *a, const struct list_elem *b, void *aux UNUSED) {
   struct thread *t1 = list_entry(a, struct thread, elem);
   struct thread *t2 = list_entry(b, struct thread, elem);
-  return t1->priority < t2->priority;
+  return priority_of_thread(t1) < priority_of_thread(t2);
 }
 void
 sema_init (struct semaphore *sema, unsigned value) 
@@ -126,6 +126,10 @@ sema_up (struct semaphore *sema)
   
   sema->value++;
   intr_set_level (old_level);
+
+  struct thread *t2 = highest_prior(); 
+  if(thread_current()->priority < t2->priority) 
+    thread_yield();
 }
 
 static void sema_test_helper (void *sema_);
@@ -248,9 +252,6 @@ lock_release (struct lock *lock)
 
   lock->holder = NULL;
   sema_up (&lock->semaphore);
-  struct thread *t2 = highest_prior(); 
-  if(thread_current()->priority < t2->priority) 
-    thread_yield();
   
   struct list_elem * e;
 
