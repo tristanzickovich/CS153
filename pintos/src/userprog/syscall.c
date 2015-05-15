@@ -6,6 +6,8 @@
 
 static void syscall_handler (struct intr_frame *);
 
+static void get_args(int *args, struct intr_frame *f, int numArgs);
+
 void
 syscall_init (void) 
 {
@@ -19,7 +21,7 @@ syscall_handler (struct intr_frame *f)
   int args[3];
   int numOfArgs;
 
-  copy_in(&callNum, f->esp, sizeof callNum);
+  //copy_in(&callNum, f->esp, sizeof callNum);
 
   switch (callNum)
   {
@@ -70,7 +72,8 @@ static void
 get_args(int *args, struct intr_frame *f, int numArgs)
 {
   int *ptr;
-  for (int i = 1; i <= numArgs; i++)
+  int i;
+  for (i = 0; i <= numArgs; i++)
   {
     ptr = f->esp + i;
     args[i] = *ptr; 
