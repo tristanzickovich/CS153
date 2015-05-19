@@ -143,12 +143,7 @@ start_process (void *file_name_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  struct child_process *cp = get_child_process(child_tid);
-  cp->wait = true;
-  while (!cp->exit);
-  int status = cp->status;
-  remove_child_process(cp);
-  return status;
+    return -1;
 }
 
 /* Free the current process's resources. */
