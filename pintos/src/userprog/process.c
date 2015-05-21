@@ -152,7 +152,7 @@ process_exit (void)
     }
   char* char_ptr;
   strtok_r(cur->name, " ", &char_ptr);
-  printf("%s: exit(%d)\n", cur->name, cur->status);
+  printf("%s: exit(%d)\n", cur->name, cur->return_status);
 }
 
 /* Sets up the CPU for running user code in the current

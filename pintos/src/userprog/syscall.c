@@ -7,7 +7,9 @@
 #include "threads/vaddr.h"
 #include "threads/synch.h"
 #include "filesys/file.h"
+#include "filesys/filesys.h"
 #include "userprog/process.h"
+#include "devices/shutdown.h"
 
 struct lock file_lock;
 
@@ -18,12 +20,17 @@ static inline bool get_user (uint8_t *dst, const uint8_t *usrc);
 static bool verify_user (const void *uaddr);
 
 static void
-halt (void); 
+halt (void)
+{
+  shutdown_power_off();
+}
 
 static void 
 exit (int status)
 {
-  thread_current()->status = status;
+  
+  thread_current()->return_status = status;
+  thread_current()->exit = true;
   thread_exit ();
 }
 
@@ -31,14 +38,28 @@ static int
 exec (const char *cmd_line);
 
 static int 
-wait (int pid);
+wait (int pid)
+{
+  process_wait(pid);
+}
 
 static bool 
-create (const char *file, unsigned initial_size);
+create (const char *file, unsigned initial_size)
+{
+  lock_acquire(&file_lock);
+  bool ret = filesys_create(file, initial_size);
+  lock_release(&file_lock);
+  return ret;
+}
 
 static bool 
-remove (const char *file);
-
+remove (const char *file)
+{
+  lock_acquire(&file_lock);
+  bool ret = filesys_remove(file);
+  lock_release(&file_lock);
+  return ret;
+}
 static int 
 open (const char *file);
 
@@ -51,9 +72,11 @@ read (int fd, void *buffer, unsigned size);
 static int 
 write (int fd, const void *buffer, unsigned size)
 {
-  
-  putbuf (buffer, size);
-
+  if (fd == 1)
+  {
+    putbuf (buffer, size);
+    return size;
+  }
   return size;
 }
 
@@ -78,18 +101,21 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   
   if (!verify_user (f->esp)) 
+  {
     exit(-1);
-
+  }
   unsigned callNum;
   int args[3];
 
   
+
   copy_in (&callNum, f->esp, sizeof callNum);
   
   
   switch(callNum)
   {
     case SYS_HALT: /* Halt the operating system. */
+      halt();
       break;
     case SYS_EXIT: /* Terminate this process. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
@@ -100,11 +126,14 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_WAIT: /* Wait for a child process to die. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
+      wait(args[0]);
       break;
     case SYS_CREATE: /* Create a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 2);
+      create(args[0], args[1]);
       break;
     case SYS_REMOVE: /* Delete a file. */
+      remove(args[0]);
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
       break;
     case SYS_OPEN: /* Open a file. */
@@ -144,7 +173,10 @@ copy_in (void *dst_, const void *usrc_, size_t size)
  
   for (; size > 0; size--, dst++, usrc++) 
     if (usrc >= (uint8_t *) PHYS_BASE || !get_user (dst, usrc)) 
+    {
+      exit(-1);
       thread_exit ();
+    }
 }
 
 /* Copies a byte from user address USRC to kernel address DST.

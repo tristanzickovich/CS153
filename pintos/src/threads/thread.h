@@ -103,6 +103,7 @@ struct thread
     struct list child_list;
     struct list_elem child_elem;
     struct file *bin;
+    int return_status;
     bool exit;
     struct list fd_list;
 #endif
