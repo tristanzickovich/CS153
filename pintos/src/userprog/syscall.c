@@ -15,6 +15,7 @@ static void syscall_handler (struct intr_frame *);
 
 static void copy_in (void *dst_, const void *usrc_, size_t size); 
 static inline bool get_user (uint8_t *dst, const uint8_t *usrc);
+static bool verify_user (const void *uaddr);
 
 static void
 halt (void); 
@@ -22,6 +23,7 @@ halt (void);
 static void 
 exit (int status)
 {
+  thread_current()->status = status;
   thread_exit ();
 }
 
@@ -49,10 +51,8 @@ read (int fd, void *buffer, unsigned size);
 static int 
 write (int fd, const void *buffer, unsigned size)
 {
-    lock_acquire (&file_lock);
-    putbuf (buffer, size);
-
-    lock_release (&file_lock);
+  
+  putbuf (buffer, size);
 
   return size;
 }
@@ -76,49 +76,52 @@ syscall_init (void)
 static void
 syscall_handler (struct intr_frame *f UNUSED) 
 {
+  
+  if (!verify_user (f->esp)) 
+    exit(-1);
 
   unsigned callNum;
   int args[3];
-  int numOfArgs;
 
   
   copy_in (&callNum, f->esp, sizeof callNum);
+  
   
   switch(callNum)
   {
     case SYS_HALT: /* Halt the operating system. */
       break;
     case SYS_EXIT: /* Terminate this process. */
-      copy_in (args, f->esp + 1, sizeof *args * 1);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
       exit(args[0]);
       break;
     case SYS_EXEC: /* Start another process. */
-      copy_in (args, f->esp + 1, sizeof *args * 1);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
       break;
     case SYS_WAIT: /* Wait for a child process to die. */
-      copy_in (args, f->esp + 1, sizeof *args * 1);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
       break;
     case SYS_CREATE: /* Create a file. */
-      copy_in (args, f->esp + 1, sizeof *args * 2);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 2);
       break;
     case SYS_REMOVE: /* Delete a file. */
-      copy_in (args, f->esp + 1, sizeof *args * 1);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
       break;
     case SYS_OPEN: /* Open a file. */
-      copy_in (args, f->esp + 1, sizeof *args * 1);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
       break;
     case SYS_FILESIZE: /* Obtain a file's size. */
-      copy_in (args, f->esp + 1, sizeof *args * 1);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
       break;
     case SYS_READ: /* Read from a file. */
-      copy_in (args, f->esp + 1, sizeof *args * 3);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 3);
       break;
     case SYS_WRITE: /* Write to a file. */
-      copy_in (args, f->esp + 1, sizeof *args * 3);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 3);
       f->eax = write(args[0],args[1],args[2]);
       break;
     case SYS_SEEK: /* Change position in a file. */
-      copy_in (args, f->esp + 1, sizeof *args * 2);
+      copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 2);
       break;
     case SYS_TELL: /* Report current position in a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
@@ -156,4 +159,11 @@ get_user (uint8_t *dst, const uint8_t *usrc)
   return eax != 0;
 }
 
-
+/* Returns true if UADDR is a valid, mapped user address,
+   false otherwise. */
+static bool
+verify_user (const void *uaddr) 
+{
+  return (uaddr < PHYS_BASE
+          && pagedir_get_page (thread_current ()->pagedir, uaddr) != NULL);
+}

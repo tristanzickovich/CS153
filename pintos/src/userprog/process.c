@@ -53,8 +53,8 @@ process_execute (const char *file_name)
   sema_init(&exec.loaded,0);
 
   char* char_ptr;
-  strlcpy(thread_name, strtok_r(file_name, " ", &char_ptr), sizeof(thread_name));
-  
+  strlcpy(thread_name, file_name,sizeof(thread_name));
+  strtok_r(thread_name, " ", &char_ptr), 
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, &exec);
   if (tid != TID_ERROR)
@@ -83,6 +83,8 @@ start_process (void *exec_)
   if_.gs = if_.fs = if_.es = if_.ds = if_.ss = SEL_UDSEG;
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
+
+
   exec->success = load (exec->file_name, &if_.eip, &if_.esp);
 
   /* If load failed, quit. */
@@ -112,7 +114,6 @@ start_process (void *exec_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while (1);
   struct thread * thread = thread_current();
   struct list_elem * elem;
   for (elem = list_begin(&thread->child_list); elem != list_end(&thread->child_list); elem = list_next(elem) )
@@ -149,6 +150,9 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  char* char_ptr;
+  strtok_r(cur->name, " ", &char_ptr);
+  printf("%s: exit(%d)\n", cur->name, cur->status);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -251,15 +255,19 @@ load (const char *cmd_line, void (**eip) (void), void **esp)
   bool success = false;
   int i;
   
+
   /* Allocate and activate page directory. */
   t->pagedir = pagedir_create ();
   if (t->pagedir == NULL) 
     goto done;
   process_activate ();
   
+
+  strlcpy(file_name, cmd_line, sizeof(file_name));
+
   char* char_pointer;
-  strlcpy(file_name, strtok_r(cmd_line," ", &char_pointer), sizeof(file_name));
-  
+  strtok_r(file_name," ", &char_pointer); 
+
   /* Open executable file. */
   file = filesys_open (file_name);
   
@@ -498,13 +506,14 @@ setup_stack_helper(const char *cmd_line, uint8_t *kpage, uint8_t *upage, void **
   char **argv;
   int argc = 0;
 
-  
   //##Parse and put in command line arguments, push each value
   //##if any push() returns NULL, return false
   char * to_tokenize;
 
-  if (NULL == (to_tokenize = push (kpage, &ofs, &cmd_line, sizeof(cmd_line))))
+  
+  if (NULL == (to_tokenize = push (kpage, &ofs, cmd_line, strlen(cmd_line)+1)))
     return false;
+
   //##push() a null (more precisely &null).
   //##if push returned NULL, return false
   if (push (kpage, &ofs, &null, sizeof(null)) == NULL)
@@ -512,6 +521,7 @@ setup_stack_helper(const char *cmd_line, uint8_t *kpage, uint8_t *upage, void **
 
 
   char * tok = strtok_r(to_tokenize, " ", &ptr);
+
 
   while (tok != NULL)
   {
@@ -523,7 +533,7 @@ setup_stack_helper(const char *cmd_line, uint8_t *kpage, uint8_t *upage, void **
   }  
 
   argv = (char **) (upage + ofs);
-
+  
   int i;  
   for ( i = 0; i < argc/2; i++)
   {
@@ -531,6 +541,7 @@ setup_stack_helper(const char *cmd_line, uint8_t *kpage, uint8_t *upage, void **
     argv[i] = argv[argc-1-i];
     argv[argc-1-i] = temp;
   }
+
   
   //##Push argv addresses (i.e. for the cmd_line added above) in reverse order
   //##See the stack example on documentation for what "reversed" means
@@ -547,9 +558,8 @@ setup_stack_helper(const char *cmd_line, uint8_t *kpage, uint8_t *upage, void **
   
   //##Set the stack pointer. IMPORTANT! Make sure you use the right value here...
   *esp = upage + ofs;
-
-  hex_dump(upage, upage, ofs,true); 
   //##If you made it this far, everything seems good, return true
+
   return true;
 }
 
