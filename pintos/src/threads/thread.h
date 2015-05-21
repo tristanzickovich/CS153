@@ -101,9 +101,9 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct list child_list;
-    struct list child_elem;
+    struct list_elem child_elem;
     struct file *bin;
-    struct semaphore alive;
+    bool exit;
     struct list fd_list;
 #endif
     

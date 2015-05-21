@@ -49,18 +49,10 @@ read (int fd, void *buffer, unsigned size);
 static int 
 write (int fd, const void *buffer, unsigned size)
 {
-  if (fd == 0)
-  {
-    printf("Can't write to std_in");
-    return -1;
-  }
-  if (fd == 1)
-  {
     lock_acquire (&file_lock);
     putbuf (buffer, size);
 
     lock_release (&file_lock);
-  }
 
   return size;
 }
@@ -123,7 +115,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_WRITE: /* Write to a file. */
       copy_in (args, f->esp + 1, sizeof *args * 3);
-      write(args[0],args[1],args[2]);
+      f->eax = write(args[0],args[1],args[2]);
       break;
     case SYS_SEEK: /* Change position in a file. */
       copy_in (args, f->esp + 1, sizeof *args * 2);

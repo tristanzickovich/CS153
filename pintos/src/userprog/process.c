@@ -49,8 +49,12 @@ process_execute (const char *file_name)
   char thread_name[16];
   tid_t tid;
 
+  exec.file_name = file_name;
+  sema_init(&exec.loaded,0);
+
   char* char_ptr;
   strlcpy(thread_name, strtok_r(file_name, " ", &char_ptr), sizeof(thread_name));
+  
   /* Create a new thread to execute FILE_NAME. */
   tid = thread_create (file_name, PRI_DEFAULT, start_process, &exec);
   if (tid != TID_ERROR)
@@ -108,7 +112,17 @@ start_process (void *exec_)
 int
 process_wait (tid_t child_tid UNUSED) 
 {
-  while(1);
+  while (1);
+  struct thread * thread = thread_current();
+  struct list_elem * elem;
+  for (elem = list_begin(&thread->child_list); elem != list_end(&thread->child_list); elem = list_next(elem) )
+  {
+    struct thread *child_thread = list_entry(elem, struct thread, child_elem);
+    if (child_thread->tid == child_tid)
+    {
+      while (!child_thread->exit);
+    }
+  }
   return -1;
 }
 
@@ -249,7 +263,6 @@ load (const char *cmd_line, void (**eip) (void), void **esp)
   /* Open executable file. */
   file = filesys_open (file_name);
   
-
   if (file == NULL) 
     {
       printf ("load: %s: open failed\n", file_name);
@@ -341,7 +354,6 @@ load (const char *cmd_line, void (**eip) (void), void **esp)
 
  done:
   /* We arrive here whether the load is successful or not. */
-  file_close (file);
   return success;
 }
 
@@ -503,10 +515,14 @@ setup_stack_helper(const char *cmd_line, uint8_t *kpage, uint8_t *upage, void **
 
   while (tok != NULL)
   {
-    argv[argc]= tok;
+    void *cur_uarg = upage + (tok - (char *) kpage);
+    if (push (kpage, &ofs, &cur_uarg, sizeof (cur_uarg)) == NULL)
+      return false;
     argc++;
     tok = strtok_r(NULL, " ", &ptr);
   }  
+
+  argv = (char **) (upage + ofs);
 
   int i;  
   for ( i = 0; i < argc/2; i++)
@@ -518,11 +534,8 @@ setup_stack_helper(const char *cmd_line, uint8_t *kpage, uint8_t *upage, void **
   
   //##Push argv addresses (i.e. for the cmd_line added above) in reverse order
   //##See the stack example on documentation for what "reversed" means
-  for (i = 0; i < argc; i++)
-  {
-    if (push (kpage, &ofs, &argv[i], sizeof (argv[i])) == NULL)
-      return false;
-  }
+  if (push (kpage, &ofs, &argv, sizeof (argv)) == NULL)
+    return false;
 
   //##Push argc, how can we determine argc?
   if (push (kpage, &ofs, &argc, sizeof (argc)) == NULL)
@@ -534,7 +547,8 @@ setup_stack_helper(const char *cmd_line, uint8_t *kpage, uint8_t *upage, void **
   
   //##Set the stack pointer. IMPORTANT! Make sure you use the right value here...
   *esp = upage + ofs;
-  
+
+  hex_dump(upage, upage, ofs,true); 
   //##If you made it this far, everything seems good, return true
   return true;
 }
