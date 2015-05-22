@@ -93,7 +93,7 @@ open (const char *file)
   lock_release(&file_lock);
   struct file_info* fi = malloc (sizeof(struct file_info));
   fi->fd = 2+thread_current()->fd++;
-  fi->file = fi;
+  fi->file = f;
   list_push_back(&thread_current()->fd_list, &fi->elem);
   return fi->fd;
 }
@@ -169,13 +169,70 @@ write (int fd, const void *buffer, unsigned size)
 }
 
 static void 
-seek (int fd, unsigned position);
+seek (int fd, unsigned position)
+{
+  struct file *file;
+  struct thread *t = thread_current();
+  struct list_elem *e;
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list); e = list_next (e))
+  {
+    struct file_info *f = list_entry (e, struct file_info, elem);
+    if (fd == f->fd)
+    {
+      file = f->file;
+      break;
+    }
+  }
+  if (file == NULL)
+    return -1;
+  lock_acquire(&file_lock);
+  file_seek(file, position);
+  lock_release(&file_lock);
+}
 
 static unsigned 
-tell (int fd);
+tell (int fd)
+{
+  struct file *file;
+  struct thread *t = thread_current();
+  struct list_elem *e;
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list); e = list_next (e))
+  {
+    struct file_info *f = list_entry (e, struct file_info, elem);
+    if (fd == f->fd)
+    {
+      file = f->file;
+      break;
+    }
+  }
+  if (file == NULL)
+    return -1;
+  lock_acquire(&file_lock);
+  int ret = file_tell(file);
+  lock_release(&file_lock);
+}
 
 static void 
-close (int fd);
+close (int fd)
+{
+  struct file *file;
+  struct thread *t = thread_current();
+  struct list_elem *e;
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list); e = list_next (e))
+  {
+    struct file_info *f = list_entry (e, struct file_info, elem);
+    if (fd == f->fd)
+    {
+      file = f->file;
+      break;
+    }
+  }
+  if (file == NULL)
+    return -1;
+  lock_acquire(&file_lock);
+  file_close(file);
+  lock_release(&file_lock);
+}
 
 void
 syscall_init (void) 
