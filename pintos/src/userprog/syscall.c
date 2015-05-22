@@ -13,6 +13,12 @@
 
 struct lock file_lock;
 
+struct file_info {
+  struct file *file;
+  int fd;
+  struct list_elem elem;
+};
+
 static void syscall_handler (struct intr_frame *);
 
 static void copy_in (void *dst_, const void *usrc_, size_t size); 
@@ -35,7 +41,19 @@ exit (int status)
 }
 
 static int 
-exec (const char *cmd_line);
+exec (const char *cmd_line)
+{
+  if (!verify_user (cmd_line)) 
+    exit(-1);
+
+  int pid = process_execute(cmd_line); 
+
+  printf("WHY IS THIS NOT BEING PRINTED????????????\n");
+
+  while (!thread_current()->child_loaded);
+
+  return pid;
+}
 
 static int 
 wait (int pid)
@@ -46,8 +64,11 @@ wait (int pid)
 static bool 
 create (const char *file, unsigned initial_size)
 {
+  if (!verify_user (file)) 
+    exit(-1);
+  const char * filePage = pagedir_get_page(thread_current()->pagedir, file);
   lock_acquire(&file_lock);
-  bool ret = filesys_create(file, initial_size);
+  bool ret = filesys_create(filePage, initial_size);
   lock_release(&file_lock);
   return ret;
 }
@@ -55,29 +76,96 @@ create (const char *file, unsigned initial_size)
 static bool 
 remove (const char *file)
 {
+  if (!verify_user (file)) 
+    exit(-1);
   lock_acquire(&file_lock);
   bool ret = filesys_remove(file);
   lock_release(&file_lock);
   return ret;
 }
 static int 
-open (const char *file);
+open (const char *file)
+{
+  if (!verify_user (file)) 
+    exit(-1);
+  lock_acquire(&file_lock); 
+  struct file *f = filesys_open(file);
+  lock_release(&file_lock);
+  struct file_info* fi = malloc (sizeof(struct file_info));
+  fi->fd = 2+thread_current()->fd++;
+  fi->file = fi;
+  list_push_back(&thread_current()->fd_list, &fi->elem);
+  return fi->fd;
+}
 
 static int 
 filesize (int fd);
 
 static int 
-read (int fd, void *buffer, unsigned size);
+read (int fd, void *buffer, unsigned size)
+{
+  if (!verify_user (buffer)) 
+    exit(-1);
+  if (fd == 0)
+  {
+    unsigned i;
+    uint8_t* local_buffer = (uint8_t *) buffer;
+    for (i = 0; i < size; i++)
+    {
+      local_buffer[i] = input_getc();
+    }
+    return size;
+  }
+  
+  struct file *file;
+  struct thread *t = thread_current();
+  struct list_elem *e;
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list); e = list_next (e))
+  {
+    struct file_info *f = list_entry (e, struct file_info, elem);
+    if (fd == f->fd)
+    {
+      file = f->file;
+      break;
+    }
+  }
+  if (file == NULL)
+    return -1;
+  lock_acquire(&file_lock);
+  int ret = file_read(file, buffer, size);
+  lock_release(&file_lock);
+  return ret;
+}
 
 static int 
 write (int fd, const void *buffer, unsigned size)
 {
+  if (!verify_user (buffer)) 
+    exit(-1);
   if (fd == 1)
   {
     putbuf (buffer, size);
     return size;
   }
-  return size;
+
+  struct file *file;
+  struct thread *t = thread_current();
+  struct list_elem *e;
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list); e = list_next (e))
+  {
+    struct file_info *f = list_entry (e, struct file_info, elem);
+    if (fd == f->fd)
+    {
+      file = f->file;
+      break;
+    }
+  }
+  if (file == NULL)
+    return -1;
+  lock_acquire(&file_lock);
+  int ret = file_write(file, buffer, size);
+  lock_release(&file_lock);
+  return ret;
 }
 
 static void 
@@ -101,14 +189,11 @@ syscall_handler (struct intr_frame *f UNUSED)
 {
   
   if (!verify_user (f->esp)) 
-  {
     exit(-1);
-  }
   unsigned callNum;
   int args[3];
 
   
-
   copy_in (&callNum, f->esp, sizeof callNum);
   
   
@@ -123,27 +208,30 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_EXEC: /* Start another process. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
+      f->eax = exec(args[0]);
       break;
     case SYS_WAIT: /* Wait for a child process to die. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
-      wait(args[0]);
+      f->eax = wait(args[0]);
       break;
     case SYS_CREATE: /* Create a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 2);
-      create(args[0], args[1]);
+      f->eax = create(args[0], args[1]);
       break;
     case SYS_REMOVE: /* Delete a file. */
-      remove(args[0]);
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
+      f->eax = remove(args[0]);
       break;
     case SYS_OPEN: /* Open a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
+      f->eax = open(args[0]);
       break;
     case SYS_FILESIZE: /* Obtain a file's size. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
       break;
     case SYS_READ: /* Read from a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 3);
+      f->eax = read(args[0], args[1], args[2]);
       break;
     case SYS_WRITE: /* Write to a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 3);

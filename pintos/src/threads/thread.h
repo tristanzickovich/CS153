@@ -106,6 +106,8 @@ struct thread
     int return_status;
     bool exit;
     struct list fd_list;
+    int fd;
+    bool child_loaded;
 #endif
     
     /* Owned by thread.c. */

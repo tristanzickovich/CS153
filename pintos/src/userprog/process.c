@@ -54,12 +54,15 @@ process_execute (const char *file_name)
 
   char* char_ptr;
   strlcpy(thread_name, file_name,sizeof(thread_name));
-  strtok_r(thread_name, " ", &char_ptr), 
+  strtok_r(thread_name, " ", &char_ptr);
   /* Create a new thread to execute FILE_NAME. */
+  thread_current()->child_loaded = false;
+
   tid = thread_create (file_name, PRI_DEFAULT, start_process, &exec);
   if (tid != TID_ERROR)
   {
     sema_down(&exec.loaded);
+    
     if (exec.success)
     {
       list_push_back(&thread_current()->child_list, &exec.child_elem);
@@ -84,14 +87,14 @@ start_process (void *exec_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-
+  
   exec->success = load (exec->file_name, &if_.eip, &if_.esp);
 
+  sema_up (&exec->loaded);
   /* If load failed, quit. */
   if (!exec->success) 
     thread_exit ();
 
-  sema_up (&exec->loaded);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -112,16 +115,20 @@ start_process (void *exec_)
    This function will be implemented in problem 2-2.  For now, it
    does nothing. */
 int
-process_wait (tid_t child_tid UNUSED) 
+process_wait (tid_t child_tid) 
 {
   struct thread * thread = thread_current();
   struct list_elem * elem;
+  
   for (elem = list_begin(&thread->child_list); elem != list_end(&thread->child_list); elem = list_next(elem) )
   {
     struct thread *child_thread = list_entry(elem, struct thread, child_elem);
     if (child_thread->tid == child_tid)
     {
       while (!child_thread->exit);
+      int status = child_thread->return_status;
+      list_remove(&child_thread->child_elem);
+      return status;
     }
   }
   return -1;
