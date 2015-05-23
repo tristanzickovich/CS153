@@ -34,9 +34,7 @@ halt (void)
 static void 
 exit (int status)
 {
-  
-  thread_current()->return_status = status;
-  thread_current()->exit = true;
+  thread_current()->child_status->exit_status = status;   
   thread_exit ();
 }
 
@@ -48,9 +46,6 @@ exec (const char *cmd_line)
 
   int pid = process_execute(cmd_line); 
 
-  printf("WHY IS THIS NOT BEING PRINTED????????????\n");
-
-  while (!thread_current()->child_loaded);
 
   return pid;
 }
@@ -86,11 +81,13 @@ remove (const char *file)
 static int 
 open (const char *file)
 {
-  if (!verify_user (file)) 
+  if (file == NULL || !verify_user (file))
     exit(-1);
   lock_acquire(&file_lock); 
   struct file *f = filesys_open(file);
   lock_release(&file_lock);
+  if (f == NULL)
+    return -1;
   struct file_info* fi = malloc (sizeof(struct file_info));
   fi->fd = 2+thread_current()->fd++;
   fi->file = f;
@@ -99,7 +96,28 @@ open (const char *file)
 }
 
 static int 
-filesize (int fd);
+filesize (int fd)
+{
+  struct file *file;
+  struct thread *t = thread_current();
+  struct list_elem *e;
+  for (e = list_begin (&t->fd_list); e != list_end (&t->fd_list); e = list_next (e))
+  {
+    struct file_info *f = list_entry (e, struct file_info, elem);
+    if (fd == f->fd)
+    {
+      file = f->file;
+      break;
+    }
+  }
+  if (file == NULL)
+    return -1;
+  lock_acquire(&file_lock);
+  int ret = file_length(file);
+  lock_release(&file_lock);
+  return ret;
+}
+
 
 static int 
 read (int fd, void *buffer, unsigned size)
@@ -144,7 +162,15 @@ write (int fd, const void *buffer, unsigned size)
     exit(-1);
   if (fd == 1)
   {
-    putbuf (buffer, size);
+    int written = 0;
+    while (written < size)
+    {
+      if (size - written > 512)
+        putbuf (buffer+written, 512);
+      else
+        putbuf (buffer, size - written);
+      written += 512;
+    }
     return size;
   }
 
@@ -285,6 +311,7 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_FILESIZE: /* Obtain a file's size. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
+      f->eax = filesize(args[0]);
       break;
     case SYS_READ: /* Read from a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 3);

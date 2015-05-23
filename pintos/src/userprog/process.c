@@ -17,6 +17,7 @@
 #include "threads/palloc.h"
 #include "threads/thread.h"
 #include "threads/vaddr.h"
+#include "threads/malloc.h"
 
 static thread_func start_process NO_RETURN;
 static bool load (const char *cmd_line, void (**eip) (void), void **esp);
@@ -32,11 +33,9 @@ struct exec_helper
   struct semaphore loaded;//##Add semaphore for loading (for resource race cases!)
   bool success;//##Add bool for determining if program loaded successfully
   //## Add other stuff you need to transfer between process_execute and process_start (hint, think of the children... need a way to add to the child's list, see below about thread's child list.)
-  struct list_elem child_elem;
-  tid_t tid;
-  int status;
-  struct semaphore alive;
+  struct child_status * status;
 };
+
 
 /* Starts a new thread running a user program loaded from
    FILENAME.  The new thread may be scheduled (and may even exit)
@@ -45,27 +44,26 @@ struct exec_helper
 tid_t
 process_execute (const char *file_name) 
 {
-  struct exec_helper exec;
+  struct exec_helper* exec = malloc (sizeof (struct exec_helper));
   char thread_name[16];
   tid_t tid;
 
-  exec.file_name = file_name;
-  sema_init(&exec.loaded,0);
+  exec->file_name = file_name;
+  sema_init(&exec->loaded,0);
 
   char* char_ptr;
   strlcpy(thread_name, file_name,sizeof(thread_name));
   strtok_r(thread_name, " ", &char_ptr);
   /* Create a new thread to execute FILE_NAME. */
-  thread_current()->child_loaded = false;
 
-  tid = thread_create (file_name, PRI_DEFAULT, start_process, &exec);
+  tid = thread_create (file_name, PRI_DEFAULT, start_process, exec);
   if (tid != TID_ERROR)
   {
-    sema_down(&exec.loaded);
+    sema_down(&exec->loaded);
     
-    if (exec.success)
+    if (exec->success)
     {
-      list_push_back(&thread_current()->child_list, &exec.child_elem);
+      list_push_back(&thread_current()->child_list, &exec->status->child_elem);
     }
     else
       return TID_ERROR;
@@ -87,14 +85,21 @@ start_process (void *exec_)
   if_.cs = SEL_UCSEG;
   if_.eflags = FLAG_IF | FLAG_MBS;
 
-  
+
   exec->success = load (exec->file_name, &if_.eip, &if_.esp);
 
-  sema_up (&exec->loaded);
   /* If load failed, quit. */
   if (!exec->success) 
     thread_exit ();
 
+  thread_current()->child_status = malloc (sizeof (struct child_status));
+  exec->status = thread_current()->child_status;
+
+  struct child_status * status = thread_current()->child_status ;
+  status->tid = thread_current()->tid;
+  sema_init(&status->alive,0);
+  
+  sema_up (&exec->loaded);
   /* Start the user process by simulating a return from an
      interrupt, implemented by intr_exit (in
      threads/intr-stubs.S).  Because intr_exit takes all of its
@@ -117,18 +122,17 @@ start_process (void *exec_)
 int
 process_wait (tid_t child_tid) 
 {
-  struct thread * thread = thread_current();
-  struct list_elem * elem;
-  
-  for (elem = list_begin(&thread->child_list); elem != list_end(&thread->child_list); elem = list_next(elem) )
+  struct thread *t = thread_current();
+  struct list_elem *e;
+
+  for (e = list_begin(&t->child_list); e != list_end(&t->child_list); e = list_next(e))
   {
-    struct thread *child_thread = list_entry(elem, struct thread, child_elem);
-    if (child_thread->tid == child_tid)
+    struct child_status *child = list_entry (e, struct child_status, child_elem);
+    if (child->tid == child_tid)
     {
-      while (!child_thread->exit);
-      int status = child_thread->return_status;
-      list_remove(&child_thread->child_elem);
-      return status;
+      sema_down(&child->alive);
+      list_remove(&child->child_elem);
+      return child->exit_status;
     }
   }
   return -1;
@@ -140,7 +144,10 @@ process_exit (void)
 {
   struct thread *cur = thread_current ();
   uint32_t *pd;
-
+  
+  struct child_status * status = cur->child_status;
+  file_close (cur->bin);
+  
   /* Destroy the current process's page directory and switch back
      to the kernel-only page directory. */
   pd = cur->pagedir;
@@ -157,9 +164,10 @@ process_exit (void)
       pagedir_activate (NULL);
       pagedir_destroy (pd);
     }
+  sema_up(&status->alive);
   char* char_ptr;
   strtok_r(cur->name, " ", &char_ptr);
-  printf("%s: exit(%d)\n", cur->name, cur->return_status);
+  printf("%s: exit(%d)\n", cur->name, status->exit_status);
 }
 
 /* Sets up the CPU for running user code in the current
@@ -272,11 +280,13 @@ load (const char *cmd_line, void (**eip) (void), void **esp)
 
   strlcpy(file_name, cmd_line, sizeof(file_name));
 
+
   char* char_pointer;
   strtok_r(file_name," ", &char_pointer); 
 
   /* Open executable file. */
   file = filesys_open (file_name);
+  t->bin = file;
   
   if (file == NULL) 
     {

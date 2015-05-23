@@ -101,19 +101,25 @@ struct thread
     /* Owned by userprog/process.c. */
     uint32_t *pagedir;                  /* Page directory. */
     struct list child_list;
-    struct list_elem child_elem;
     struct file *bin;
-    int return_status;
-    bool exit;
     struct list fd_list;
     int fd;
-    bool child_loaded;
+
+    struct child_status * child_status;    
 #endif
     
     /* Owned by thread.c. */
     unsigned magic;                     /* Detects stack overflow. */
   };
 
+struct child_status
+{
+  struct list_elem child_elem;
+
+  tid_t tid;
+  int exit_status;
+  struct semaphore alive;
+};
 /* If false (default), use round-robin scheduler.
    If true, use multi-level feedback queue scheduler.
    Controlled by kernel command-line option "-o mlfqs". */
