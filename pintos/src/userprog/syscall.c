@@ -92,6 +92,8 @@ open (const char *file)
   fi->fd = 2+thread_current()->fd++;
   fi->file = f;
   list_push_back(&thread_current()->fd_list, &fi->elem);
+
+
   return fi->fd;
 }
 
@@ -149,6 +151,7 @@ read (int fd, void *buffer, unsigned size)
   }
   if (file == NULL)
     return -1;
+
   lock_acquire(&file_lock);
   int ret = file_read(file, buffer, size);
   lock_release(&file_lock);
@@ -250,6 +253,7 @@ close (int fd)
     if (fd == f->fd)
     {
       file = f->file;
+      list_remove(e);
       break;
     }
   }
@@ -323,12 +327,15 @@ syscall_handler (struct intr_frame *f UNUSED)
       break;
     case SYS_SEEK: /* Change position in a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 2);
+      seek(args[0], args[1]);
       break;
     case SYS_TELL: /* Report current position in a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
+      f->eax = tell(args[0]);
       break;
     case SYS_CLOSE: /* Close a file. */
       copy_in (args, (uint32_t *) f->esp + 1, sizeof *args * 1);
+      close(args[0]);
       break;  
     thread_exit();
   }
